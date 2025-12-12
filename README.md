@@ -31,23 +31,6 @@ Analizar y visualizar la distribución mundial de la riqueza extrema en 2025 med
 
 ---
 
-## 📊 Dataset
-
-- **Fuente:** Forbes – World’s Billionaires List 2025  
-- **Observaciones:** 3.077 multimillonarios  
-- **Variables principales:**
-  - `Rank`
-  - `Name`
-  - `NetWorth` (USD billones)
-  - `Age`
-  - `Country`
-  - `Source`
-  - `Industry`
-
-> ⚠️ El archivo original de Forbes no se incluye en este repositorio por restricciones de derechos y tamaño.
-
----
-
 ## 🛠️ Herramientas y librerías utilizadas
 
 El proyecto fue desarrollado en **R** utilizando principalmente:
@@ -81,13 +64,3 @@ El proyecto fue desarrollado en **R** utilizando principalmente:
 
 ---
 
-## 📁 Estructura del repositorio
-
-```text
-├── data/
-│   └── (dataset no incluido)
-├── scripts/
-│   └── Analytics_Project.Rmd
-├── outputs/
-│   └── Analytics-Project.html
-├── README.md
