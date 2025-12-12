@@ -1,0 +1,1244 @@
+---
+title: "Analytics project: World's billionaires list 2025"
+author: "Juan Miguel Rodríguez Trujillo"
+date: "Mayo de 2025"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r include-image, echo=FALSE, out.width="100%", fig.align='center', fig.cap='Imagen tomada de Forbes'}
+knitr::include_graphics("imagen.png")
+``` 
+
+# 1. Introducción
+
+La lista de multimillonarios publicada anualmente por **Forbes** es una de las referencias más emblemáticas para conocer la **distribución de la riqueza extrema en el mundo**. Cada año, este listado recopila información sobre las personas más ricas del planeta, incluyendo su **patrimonio neto estimado, país de origen, fuente de riqueza y el sector económico** en el que se desempeñan.
+
+Este proyecto tiene un doble propósito:
+
++ Brindar una **introducción práctica al análisis estadístico descriptivo y visualización de datos en R** con datos de corte transversal.
++ Explorar los datos de la **lista de multimillonarios de Forbes 2025**, extrayendo patrones clave, comparaciones regionales y curiosidades a partir de un enfoque visual y cuantitativo.
+
+Para ello, se utilizará el lenguaje de programación R y algunas de sus librerías más conocidas
+en el entorno del análisis de datos, como *dplyr, ggplot2, y tidyverse*, entre otras.
+
+**¿Qué analizaremos?**
+
+A lo largo del documento se responderán preguntas como:
+
++	¿Cuáles son los países con mayor número de multimillonarios?
++	¿Qué industrias acumulan mayor riqueza?
++ ¿Cómo se distribuye la edad entre los multimillonarios?
++	¿Cómo se compara Colombia frente a otros países latinoamericanos?
++	¿Qué diferencias existen entre Estados Unidos, China y la Unión Europea?
+
+Además, se crearán nuevas variables como **una clasificación binaria** que indica si un multimillonario pertenece a la **Unión Europea, Estados Unidos o China**, lo que permitirá realizar comparaciones más enriquecidas.
+
+También se implementarán **visualizaciones geoespaciales mediante la librería rnaturalearth** que ayuden a comprender mejor la distribución global de la riqueza extrema.
+
+# 2. Exploración y limpieza del DataSet
+
+## 2.1 Lectura del archivo
+
+
+```{r lectura, warning=FALSE, message=FALSE}
+
+# Cargar librerías
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidyverse)
+library(kableExtra)
+library(treemapify)
+library(ggrepel)
+library(rnaturalearth)
+library(sf)
+
+
+# Leer el archivo Excel
+forbes <- read_excel("FORBES.xlsx")
+
+```
+
+
+## 2.2 Dimensiones del Dataset
+
+```{r}
+# Número de filas y columnas
+dim(forbes)
+
+# Nombres de las variables
+colnames(forbes)
+
+# Categorías y conteo por variable "Industry"
+forbes %>%
+  count(Industry, sort = TRUE)
+```
+
+## 2.3 Tipos de variables y estructura general
+
+```{r}
+# Vista general de las variables
+glimpse(forbes)
+```
+
+
+```{r}
+# El comando "str" también se puede usar para obtener información general de las variables
+str(forbes)
+```
+ 
+## 2.4 Revisión de valores faltantes, nulos y duplicados
+
+```{r}
+# Verificar valores faltantes
+colSums(is.na(forbes))
+
+# Verificar duplicados
+sum(duplicated(forbes))
+
+# Eliminar duplicados
+forbes <- forbes %>% distinct()
+
+# Estadísticas generales para detectar outliers
+summary(forbes)
+```
+## 2.5 Conversión de tipos de variables
+
+```{r}
+# Convertir "Net Worth" a número
+forbes <- forbes %>%
+  mutate(NetWorth = as.numeric(str_remove_all(`Net Worth`, "[$B]")))
+
+```
+
+
+## 2.6 Generación de nuevas variables
+
+### Variables binarias: Pertenencia a la Unión Europea, Estados Unidos y China 
+
+Para mejoras en el análisis geopolítico: 
+
+```{r}
+# Lista de países de la UE+
+
+# Lista ampliada de países europeos (2025)
+
+european_countries <- c("Germany", "France", "Italy", "Spain", "Netherlands",
+                        "Poland", "Sweden", "Belgium", "Austria", "Denmark",
+                        "Finland", "Portugal", "Ireland", "Czech Republic",
+                        "Greece", "Hungary", "Slovakia", "Bulgaria", "Croatia",
+                        "Lithuania", "Slovenia", "Latvia", "Estonia", "Luxembourg",
+                        "Malta", "Cyprus", "Romania",
+                        # No UE
+                        "United Kingdom", "Switzerland", "Norway", "Iceland",
+                        "Serbia", "Ukraine", "Bosnia and Herzegovina", "Albania",
+                        "North Macedonia", "Moldova", "Kosovo", "Monaco",
+                        "Liechtenstein", "Andorra", "San Marino")
+
+```
+
+```{r}
+# Variables dummy por región/país
+forbes <- forbes %>%
+  mutate(
+    Is_Europe = if_else(Country %in% european_countries, 1, 0),
+    Is_EEUU = if_else(Country == "United States", 1, 0),
+    Is_China = if_else(Country == "China", 1, 0)
+  )
+```
+
+
+# 3. Análisis descriptivo general
+
+```{r top10-billonarios, echo=FALSE, message=FALSE, warning=FALSE}
+# Filtrar el Top 10
+top10 <- forbes %>%
+  arrange(desc(NetWorth)) %>%
+  select(Rank, Name, NetWorth, Age, Country, Industry, Source) %>%
+  slice_head(n = 10)
+
+# Crear tabla con estilo
+top10 %>%
+  kable("latex", booktabs = TRUE, caption = "Top 10 multimillonarios según patrimonio neto (USD Billions)") %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down"), font_size = 10)
+```
+
+## 3.1 Estadísticas generales de los multimillonarios
+
+**Estadísticas descriptivas de las variables cuantitativas *NetWorth* y *Age*:**
+
+```{r estadisticas_generales, warning=FALSE, message=FALSE}
+# Estadísticas descriptivas para variables numéricas
+summary(select(forbes, NetWorth, Age))
+
+```
+
+**La lista limpia contiene la información de 2943 multimillonarios:**
+
+```{r}
+dim(forbes)
+```
+## 3.2 Histograma de la variable *Edad*
+
+```{r histograma_edad, warning=FALSE, message=FALSE}
+
+# Histograma con mayor frecuencia de etiquetas en eje X
+ggplot(forbes, aes(x = Age)) +
+  geom_histogram(binwidth = 5, fill = "#383378", color = "white", alpha = 0.9) +
+  labs(
+    title = "Distribución de la Edad de los Multimillonarios",
+    subtitle = "Agrupación por intervalos de 5 años",
+    x = "Edad (años)",
+    y = "Número de multimillonarios"
+  ) +
+  scale_x_continuous(breaks = seq(20, 100, by = 10)) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", color = "#222222"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "grey90"),
+    panel.grid.minor = element_blank()
+  )
+
+
+```
+
+## 3.3 Histograma del 97% menos rico
+
+```{r histograma_networth_98, warning=FALSE, message=FALSE}
+# Calcular el percentil 97 del patrimonio neto
+p97 <- quantile(forbes$NetWorth, 0.97, na.rm = TRUE)
+
+# Filtrar el 97% inferior
+forbes_97 <- forbes %>% filter(NetWorth <= p97)
+
+# Histograma para el 97% menos rico
+ggplot(forbes_97, aes(x = NetWorth)) +
+  geom_histogram(binwidth = 0.5, fill = "#383378", color = "white", alpha = 0.9) +
+  labs(
+    title = "Distribución del Patrimonio Neto - 97% menos rico",
+    subtitle = "Agrupación por intervalos de $0.5B hasta el percentil 97",
+    x = "Net Worth (USD Billions)",
+    y = "Número de multimillonarios"
+  ) +
+  scale_x_continuous(breaks = seq(0, round(p97), by = 1)) + 
+  scale_y_continuous(breaks = seq(0, 750, by = 150)) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", color = "#222222"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "grey90"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+## 3.4 Histograma del 3% más rico
+
+```{r histograma_networth_3, warning=FALSE, message=FALSE}
+
+# Filtrar el 3% superior
+forbes_3 <- forbes %>% filter(NetWorth > p97)
+
+# Histograma para el 3% más rico
+ggplot(forbes_3, aes(x = NetWorth)) +
+  geom_histogram(binwidth = 10, fill = "#383378", color = "white", alpha = 0.9) +
+  labs(
+    title = "Distribución del Patrimonio Neto - 3% más rico",
+    subtitle = "Intervalos de $10B a partir del percentil 97",
+    x = "Net Worth (USD Billions)",
+    y = "Número de multimillonarios"
+  ) + scale_y_continuous(breaks = seq(0, 30, by = 5)) +
+  scale_x_continuous(breaks = seq(floor(min(forbes_3$NetWorth)),
+  ceiling(max(forbes_3$NetWorth)), by = 20)) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", color = "#222222"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "grey90"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+## 3.5 Distribución de multimillonarios por país
+
+### 3.5.1 Top 10 países con más multimillonarios
+
+```{r top10_paises_tabla_grafico, warning=FALSE, message=FALSE}
+# Top 10 países con más multimillonarios
+top_paises <- forbes %>%
+  count(Country, sort = TRUE) %>%
+  top_n(10, n)
+
+
+
+# Gráfico de barras horizontal
+ggplot(top_paises, aes(x = reorder(Country, n), y = n)) +
+  geom_bar(stat = "identity", fill = "#383378", alpha = 0.9) +
+  labs(
+    title = "Top 10 países con más multimillonarios",
+    subtitle = "*Hong Kong se considera como país independiente de China",
+    x = "País",
+    y = "Número de multimillonarios"
+  ) +
+  coord_flip() +
+  scale_y_continuous(breaks = seq(0, max(top_paises$n), by = 75)) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", color = "#222222"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.x = element_line(color = "grey90"),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+### 3.5.2 ¿Dónde viven los multimillonarios?
+
+```{r mapa_calor_por_pais, warning=FALSE, message=FALSE}
+
+# Corrección de nombres para emparejar con el mapa
+forbes_mapa <- forbes %>%
+  mutate(Country = recode(Country,
+                          "United States" = "United States of America",
+                        )) %>%
+  count(Country, name = "n_millonarios")
+
+# Cargar geometría mundial
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Unir bases
+mapa_forbes <- left_join(world, forbes_mapa, by = c("name" = "Country"))
+
+# Crear mapa
+ggplot(mapa_forbes) +
+  geom_sf(aes(fill = n_millonarios), color = "gray85", size = 0.1) +
+  scale_fill_gradient(
+    name = "Número de multimillonarios",
+    low = "#e0e7ff", high = "#312e81", na.value = "white"
+  ) +
+  labs(
+    title = "¿Dónde viven los multimillonarios?",
+    subtitle = "Distribución según la lista Forbes 2025",
+    caption = "Fuente: Elaboración propia con datos de Forbes 2025"
+  ) +
+  coord_sf(
+    xlim = c(-160, 180),  
+    ylim = c(-55, 85),      
+    expand = FALSE
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", color = "#1F1F1F"),
+    plot.subtitle = element_text(size = 13, face = "plain", color = "#555555"),
+    plot.caption = element_text(size = 10, color = "gray50", margin = margin(t = 10)),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = margin(0, 0, 0, 0)
+  )
+
+```
+
+### 3.5.3 ¿Dónde viven los multimillonarios en América?
+
+```{r mapa_america_ajustado, warning=FALSE, message=FALSE}
+# Filtrar países de América
+mapa_america <- mapa_forbes %>%
+  filter(region_un == "Americas")
+
+# América: Ajuste de límites geográficos
+ggplot(mapa_america) +
+  geom_sf(aes(fill = n_millonarios), color = "gray85", size = 0.1) +
+  scale_fill_gradient(name = "Número de multimillonarios",
+                      low = "#e0e7ff", high = "#312e81", na.value = "white") +
+  labs(
+    title = "¿Dónde viven los multimillonarios en América?",
+    subtitle = "Distribución según la lista Forbes 2025"
+  ) +
+  coord_sf(xlim = c(-170, -30), ylim = c(-60, 80), expand = FALSE) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+### 3.5.4 ¿Dónde viven los multimillonarios en Europa?
+
+```{r mapa_europa_ajustado, warning=FALSE, message=FALSE}
+# Filtrar países de Europa
+mapa_europa <- mapa_forbes %>%
+  filter(region_un == "Europe")
+
+# Europa: Ajuste de límites geográficos
+ggplot(mapa_europa) +
+  geom_sf(aes(fill = n_millonarios), color = "gray85", size = 0.1) +
+  scale_fill_gradient(name = "Número de multimillonarios",
+                      low = "#e0e7ff", high = "#312e81", na.value = "white") +
+  labs(
+    title = "¿Dónde viven los multimillonarios en Europa?",
+    subtitle = "Distribución según la lista Forbes 2025"
+  ) +
+  coord_sf(xlim = c(-30, 70), ylim = c(30, 75), expand = FALSE) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+### 3.5.5 ¿Dónde viven los multimillonarios en Asia?
+
+```{r mapa_asia, warning=FALSE, message=FALSE}
+# Filtrar países de Asia
+mapa_asia <- mapa_forbes %>%
+  filter(region_un == "Asia")
+
+# Asia: Ajuste de límites geográficos
+ggplot(mapa_asia) +
+  geom_sf(aes(fill = n_millonarios), color = "gray85", size = 0.1) +
+  scale_fill_gradient(name = "Número de multimillonarios",
+                      low = "#e0e7ff", high = "#312e81", na.value = "white") +
+  labs(
+    title = "¿Dónde viven los multimillonarios en Asia?",
+    subtitle = "Distribución según la lista Forbes 2025"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12, color = "#555555"),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank()
+  )
+
+``` 
+
+
+# 4. Análisis por Industria e Ingresos
+
+## 4.1 Industrias con mayor número de multimillonarios
+
+```{r industrias_barplot, warning=FALSE, message=FALSE}
+
+# Agrupar por industria
+industria_total <- forbes %>%
+  count(Industry, sort = TRUE)
+
+# Gráfico
+ggplot(industria_total, aes(x = reorder(Industry, n), y = n)) +
+  geom_bar(stat = "identity", fill = "#383378", alpha = 0.9) +
+  labs(
+    title = "Número de multimillonarios por industria",
+    subtitle = "Distribución total según la lista Forbes 2025",
+    x = "Industria",
+    y = "Número de multimillonarios"
+  ) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "#555555"),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+```
+
+```{r industrias_proporcion, warning=FALSE, message=FALSE}
+# Calcular proporciones
+industria_prop <- industria_total %>%
+  mutate(porcentaje = round(100 * n / sum(n), 1))
+
+# Gráfico con etiquetas de porcentaje
+ggplot(industria_prop, aes(x = reorder(Industry, porcentaje), y = porcentaje)) +
+  geom_bar(stat = "identity", fill = "#383378", alpha = 0.9) +
+  geom_text(aes(label = paste0(porcentaje, "%")), hjust = -0.1, size = 3.2, color = "black") +
+  labs(
+    title = "Proporción de multimillonarios por industria",
+    subtitle = "Distribución total según la lista Forbes 2025",
+    x = "Industria",
+    y = "Porcentaje"
+  ) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 20), breaks = seq(0, 18, by = 2.5)) +  
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "#555555"),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+```
+
+## 4.2 Industrias con mayor patrimonio agregado
+
+```{r industrias_patrimonio_total, warning=FALSE, message=FALSE}
+# Calcular patrimonio total por industria
+industria_riqueza <- forbes %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  arrange(desc(PatrimonioTotal))
+
+# Gráfico
+ggplot(industria_riqueza, aes(x = reorder(Industry, PatrimonioTotal), y = PatrimonioTotal)) +
+  geom_bar(stat = "identity", fill = "#383378", alpha = 0.9) +
+  labs(
+    title = "Patrimonio neto agregado por industria",
+    subtitle = "Distribución total según la lista Forbes 2025",
+    x = "Industria",
+    y = "Patrimonio total"
+  ) +
+  coord_flip() +
+  scale_y_continuous(breaks = seq(0, max(industria_riqueza$PatrimonioTotal), by = 500)) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "#555555"),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+```
+
+
+```{r industrias_patrimonio_porcentaje, warning=FALSE, message=FALSE}
+# Calcular proporción del total
+industria_riqueza_prop <- industria_riqueza %>%
+  mutate(Porcentaje = round(100 * PatrimonioTotal / sum(PatrimonioTotal), 1))
+
+# Gráfico
+ggplot(industria_riqueza_prop, aes(x = reorder(Industry, Porcentaje), y = Porcentaje)) +
+  geom_bar(stat = "identity", fill = "#383378", alpha = 0.9) +
+  geom_text(aes(label = paste0(Porcentaje, "%")), hjust = -0.1, size = 3.2, color = "black") +
+  labs(
+    title = "Proporción del patrimonio total por industria",
+    subtitle = "Distribución total según la lista Forbes 2025",
+    x = "Industria",
+    y = "Porcentaje") +coord_flip() +
+  scale_y_continuous(limits = c(0, 25), breaks = seq(0, 25, by = 5)) +  # Ajusta si hay más dispersión
+  theme_minimal(base_family = "sans") + theme( plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "#555555"),axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+```
+
+
+## 4.3 Cantidad de multimillonarios vs Patrimonio agregado 
+
+```{r industria_n_vs_patrimonio, warning=FALSE, message=FALSE}
+abreviaciones <- c(
+  "Technology" = "Tech",
+  "Finance & Investments" = "Fin",
+  "Fashion & Retail" = "F&R",
+  "Manufacturing" = "Mfg",
+  "Food & Beverage" = "F&B",
+  "Diversified" = "Div",
+  "Healthcare" = "Hlth",
+  "Real Estate" = "RE",
+  "Automotive" = "Auto",
+  "Energy" = "En",
+  "Media & Entertainment" = "M&E",
+  "Metals & Mining" = "M&M",
+  "Engineering" = "Eng",
+  "Logistics" = "Log",
+  "Construction & Engineering" = "C&E",
+  "Telecom" = "Tel",
+  "Service" = "Svc",
+  "Gambling & Casinos" = "G&C"
+)
+
+# Número de personas por industria
+industria_n <- forbes %>%
+  count(Industry, name = "NumMillonarios")
+
+# Patrimonio total por industria
+industria_riqueza <- forbes %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE))
+
+# Combinar ambas
+industria_comparacion <- left_join(industria_n, industria_riqueza, by = "Industry")
+
+# Alterar nombre de la industrias por abreviaturas
+industria_comparacion <- industria_comparacion %>%
+  mutate(IndustriaAbrev = abreviaciones[Industry])
+
+# Crear leyenda textual
+leyenda_abrevs <- paste0(names(abreviaciones), " = ", abreviaciones, collapse = " | ")
+
+# Aplicar abreviaciones
+industria_comparacion <- industria_comparacion %>%
+  mutate(IndustriaAbrev = abreviaciones[Industry])
+
+# Caption
+caption = paste(
+  "Abreviaturas:",
+  "Tech = Technology | Fin = Finance & Investments
+  | F&R = Fashion & Retail | Mfg = Manufacturing | F&B = Food & Beverage",
+  "| Div = Diversified,
+  Hlth = Healthcare | RE = Real Estate | 
+  Auto = Automotive | En = Energy | M&E = Media & Entertainment | M&M = Metals & Mining |",
+  "Eng = Engineering | Log = Logistics | C&E = Construction & Engineering 
+  | Tel = Telecom | Svc = Service | G&C = Gambling & Casinos",
+  sep = "\n"
+)
+
+
+# Gráfico final
+ggplot(industria_comparacion, aes(x = NumMillonarios, y = PatrimonioTotal)) +
+  geom_point(aes(size = PatrimonioTotal), color = "#383378", alpha = 0.8) +
+  geom_label_repel(
+    aes(label = IndustriaAbrev),
+    size = 4, color = "black", box.padding = 0.4,
+    segment.color = "gray60", max.overlaps = 20, label.size = 0.2
+  ) +
+  scale_size(range = c(3, 10), guide = "none") +
+  scale_y_continuous(limits = c(0, 3500), breaks = seq(0, 3500, 500)) +
+  labs(
+    title = "Scatter plot: ¿Cantidad o concentración? ",
+    subtitle = "Relación entre número de multimillonarios y riqueza total",
+    x = "Número de multimillonarios",
+    y = "Patrimonio total (USD Billions)",
+    caption = paste(
+      "Abreviaturas:",
+      "Tech = Technology | Fin = Finance & Investments | F&R = Fashion & Retail | Mfg = Manufacturing | F&B = Food & Beverage | ",
+      " Div = Diversified | Hlth = Healthcare | RE = Real Estate | Auto = Automotive | En = Energy | M&E = Media & Entertainment |", 
+      " M&M = Metals & Mining | Log = Logistics | C&E = Construction & Engineering | Tel = Telecom | Svc = Service |", 
+      "| G&C = Gambling & Casinos |",
+      sep = "\n"
+    )
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "#555555"),
+    plot.caption = element_text(size = 9, color = "gray50", margin = margin(t = 10)),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+
+```
+
+## 4.4 Distribución de edad por industria
+
+```{r boxplot_edad_industria_final, warning=FALSE, message=FALSE}
+# Filtrar datos válidos
+forbes_filtrado <- forbes %>% filter(!is.na(Age))
+
+# Ordenar industrias por mediana de edad (descendente)
+orden_industrias <- forbes_filtrado %>%
+  group_by(Industry) %>%
+  summarise(MedianaEdad = median(Age, na.rm = TRUE)) %>%
+  arrange(desc(MedianaEdad)) %>%
+  pull(Industry)
+
+# Gráfico
+ggplot(forbes_filtrado, aes(x = factor(Industry, levels = orden_industrias), y = Age)) +
+  geom_boxplot(
+    fill = "#383378", color = "white", outlier.shape = 21,
+    outlier.fill = "#e63946", outlier.color = "black", outlier.size = 2, alpha = 0.85
+  ) +
+  scale_y_continuous(breaks = seq(0, 100, by = 15)) +  # Eje Y de 15 en 15
+  labs(
+    title = "Distribución de la edad por industria",
+    subtitle = "Ordenado de menor a mayor mediana",
+    x = "Industria",
+    y = "Edad (años)"
+  ) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 11, color = "#555555", hjust = 0.5),
+    axis.title = element_text(size = 11),
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.x = element_line(color = "gray80", size = 0.4),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank() 
+  )
+
+```
+
+# 5. Comparativa: Colombia vs Pares latinoamericanos
+
+```{r tabla-colombia, echo=FALSE, message=FALSE, warning=FALSE}
+# Filtrar multimillonarios colombianos
+colombia_top <- forbes %>%
+  filter(Country == "Colombia") %>%
+  arrange(desc(NetWorth)) %>%
+  select(Rank, Name, NetWorth, Age, Source, Industry)
+
+# Crear tabla
+colombia_top %>%
+  kable("latex", booktabs = TRUE, caption = "Multimillonarios en Colombia - Lista Forbes 2025") %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down"), font_size = 10)
+
+# Vector de países latinoamericanos
+latam <- c("Colombia", "Mexico", "Brazil", "Argentina", "Chile")
+
+# Top 10 por patrimonio entre todos los países Latam
+latam_top10 <- forbes %>%
+  filter(Country %in% latam) %>%
+  arrange(desc(NetWorth)) %>%
+  select(Country, Rank, Name, NetWorth, Age, Source, Industry) %>%
+  slice_head(n = 10)
+
+# Crear tabla
+latam_top10 %>%
+  kable("latex", booktabs = TRUE, caption = "Top 10 multimillonarios de América Latina - Lista Forbes 2025") %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down"), font_size = 9)
+```
+
+
+
+## 5.1 Número de multimillonarios por país
+
+```{r comparativo_n_personas_latam, warning=FALSE, message=FALSE}
+# Filtrar países de interés
+latam <- c("Colombia", "Mexico", "Brazil", "Argentina", "Chile")
+
+# Número de multimillonarios
+n_millonarios_latam <- forbes %>%
+  filter(Country %in% latam) %>%
+  count(Country, name = "NumMillonarios")
+
+# Vector de colores por país
+colores_latam <- c(
+  "Colombia"  = "#ffff00",
+  "Mexico"    = "#178b2e",  
+  "Brazil"    = "#0106b4",  
+  "Argentina" = "#85fff9",  
+  "Chile"     = "#ff4b4b"   
+)
+
+# Gráfica
+ggplot(n_millonarios_latam, aes(x = reorder(Country, -NumMillonarios), 
+                                y = NumMillonarios, fill = Country)) +
+  geom_bar(stat = "identity", width = 0.65, color = "white", alpha = 0.9) +
+  geom_text(
+    aes(label = NumMillonarios),
+    vjust = -0.6, size = 4, color = "#222222"
+  ) +
+  scale_fill_manual(values = colores_latam) +
+  scale_y_continuous(limits = c(0, 55), breaks = seq(0, 55, by = 5)) +
+  labs(
+    title = "Número de multimillonarios por país",
+    subtitle = "Comparativa regional: Colombia vs pares latinoamericanos",
+    x = NULL,
+    y = "Cantidad de multimillonarios"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title.y = element_text(size = 11),
+    axis.title.x = element_blank(),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(10, 20, 10, 20)
+  )
+```
+
+## 5.2 Patrimonio neto por país
+
+```{r comparativo_riqueza_latam_colores, warning=FALSE, message=FALSE}
+# Crear Df "riqueza_latam"
+riqueza_latam <- forbes %>%
+  filter(Country %in% latam) %>%
+  group_by(Country) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  arrange(desc(PatrimonioTotal))
+
+# Gráfica
+ggplot(riqueza_latam, aes(x = reorder(Country, -PatrimonioTotal), y = PatrimonioTotal, fill = Country)) +
+  geom_bar(stat = "identity", width = 0.65, color = "white", alpha = 0.9) +
+  geom_text(
+    aes(label = round(PatrimonioTotal, 1)),
+    vjust = -0.6, size = 4, color = "#222222"
+  ) +
+  scale_fill_manual(values = colores_latam) +
+  scale_y_continuous(limits = c(0, max(riqueza_latam$PatrimonioTotal) + 30), breaks = seq(0, 300, by = 50)) +
+  labs(
+    title = "Patrimonio total de multimillonarios por país",
+    subtitle = "Comparativa regional: Colombia vs pares latinoamericanos",
+    x = NULL,
+    y = "Patrimonio total (USD Billions)"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title.y = element_text(size = 11),
+    axis.title.x = element_blank(),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(10, 20, 10, 20)
+  )
+
+``` 
+
+## 5.3 Principales industrias de Latam
+
+```{r industria_riqueza_total_latam, warning=FALSE, message=FALSE}
+# Industrias que conforman la riqueza en Latam
+industria_total_latam <- forbes %>%
+  filter(Country %in% latam) %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  arrange(desc(PatrimonioTotal)) %>%
+  mutate(
+    Etiqueta = paste0(round(PatrimonioTotal, 1), "B")  # Solo el patrimonio
+  )
+
+# Gráfico de barras
+ggplot(industria_total_latam, aes(x = reorder(Industry, PatrimonioTotal), y = PatrimonioTotal)) +
+  geom_bar(stat = "identity", fill = "#383378", width = 0.65, color = "white", alpha = 0.95) +
+  geom_text(aes(label = Etiqueta), hjust = -0.2, size = 3.2, color = "#222222") +
+  scale_y_continuous(limits = c(0, max(industria_total_latam$PatrimonioTotal) + 30)) +
+  labs(
+    title = "Distribución de patrimonio por industria",
+    subtitle = "Patrimonio total (USD Billions) sumado por sector",
+    x = "Industria",
+    y = "Patrimonio total (USD Billions)"
+  ) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 11, color = "#555555", hjust = 0.5),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+
+```
+
+
+```{r}
+# Proporción de patrimonio 
+industria_total_latam <- forbes %>%
+  filter(Country %in% latam) %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  mutate(
+    Proporcion = round(100 * PatrimonioTotal / sum(PatrimonioTotal), 1)  
+  ) %>%
+  arrange(desc(Proporcion))
+
+# Gráfico de barras solo porcentaje
+ggplot(industria_total_latam, aes(x = reorder(Industry, Proporcion), y = Proporcion)) +
+  geom_bar(stat = "identity", fill = "#383378", width = 0.65, color = "white", alpha = 0.95) +
+  geom_text(aes(label = paste0(Proporcion, "%")), hjust = -0.2, size = 3.2, color = "#222222") +
+  scale_y_continuous(
+    limits = c(0, max(industria_total_latam$Proporcion) + 5),
+    breaks = seq(0, 100, by = 5)  # Líneas cada 5%
+  ) +
+  labs(
+    title = "Distribución de patrimonio por industria",
+    subtitle = "Proporción sobre el patrimonio total",
+    x = "Industria",
+    y = "Porcentaje del patrimonio (%)"
+  ) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 11, color = "#555555", hjust = 0.5),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    panel.grid.major.x = element_line(color = "gray85", size = 0.4),  # Grilla suave horizontal
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+
+# 6. Comparativa regional: EE.UU. vs Europa vs China
+
+```{r}
+
+# Definir países de la Unión Europea y Europa Ampliada
+paises_europa <- c(
+  "Germany", "France", "Italy", "Spain", "Netherlands", "Poland", "Sweden", "Belgium", "Austria",
+  "Denmark", "Finland", "Portugal", "Ireland", "Czech Republic", "Greece", "Hungary", "Slovakia",
+  "Bulgaria", "Croatia", "Lithuania", "Slovenia", "Latvia", "Estonia", "Luxembourg", "Malta", 
+  "Cyprus", "Romania", "United Kingdom", "Switzerland", "Norway", "Iceland", "Serbia", "Ukraine",
+  "Bosnia and Herzegovina", "Albania", "North Macedonia", "Moldova", "Kosovo", "Monaco",
+  "Liechtenstein", "Andorra", "San Marino"
+)
+
+# Crear la nueva variable "Bloque"
+forbes <- forbes %>%
+  mutate(Bloque = case_when(
+    Country == "United States" ~ "EE.UU.",
+    Country == "China" ~ "China",
+    Country %in% paises_europa ~ "Europa",
+    TRUE ~ NA_character_
+  ))
+
+```
+
+
+## 6.1 Número de multimillonarios por bloque
+
+```{r}
+# Filtrar multimillonarios de los bloques de interés
+forbes_bloques <- forbes %>%
+  filter(!is.na(Bloque))
+
+# Contar número de multimillonarios por bloque
+n_millonarios_bloque <- forbes_bloques %>%
+  count(Bloque, name = "NumMillonarios") %>%
+  arrange(desc(NumMillonarios))
+
+# Definir colores para los bloques
+colores_bloques <- c(
+  "EE.UU." = "#1f77b4",  
+  "China" = "#d62728",   
+  "Europa" = "#2ca02c" 
+)
+
+# Reordenar el factor 'Bloque' para controlar el orden en la leyenda y en el gráfico
+n_millonarios_bloque <- n_millonarios_bloque %>%
+  mutate(Bloque = factor(Bloque, levels = c("EE.UU.", "Europa", "China")))
+
+# Gráfico 
+ggplot(n_millonarios_bloque, aes(x = reorder(Bloque, -NumMillonarios), y = NumMillonarios, fill = Bloque)) +
+  geom_bar(stat = "identity", width = 0.45, color = "white", alpha = 0.9) +
+  geom_text(
+    aes(label = NumMillonarios),
+    vjust = -0.7, size = 4, color = "black", fontface = "plain"  
+  ) +
+  scale_fill_manual(values = colores_bloques, name = "Bloque económico: ") +
+  scale_y_continuous(
+    limits = c(0, max(n_millonarios_bloque$NumMillonarios) + 50),
+    breaks = seq(0, max(n_millonarios_bloque$NumMillonarios) + 50, by = 200),
+    expand = expansion(mult = c(0, 0.08))
+  ) +
+  labs(
+    title = "Número de multimillonarios por bloque económico",
+    subtitle = "Bloques: EE.UU., Europa y China",
+    x = NULL,
+    y = "Cantidad de multimillonarios"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.background = element_rect(fill = "#f7f7f7", color = NA),  
+    panel.background = element_rect(fill = "#f7f7f7", color = NA),
+    plot.title = element_text(size = 17, face = "bold", color = "#222222", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#666666", hjust = 0.5),
+    axis.title.y = element_text(size = 12),
+    axis.text.x = element_text(size = 11),
+    axis.text.y = element_text(size = 11),
+    panel.grid.major.y = element_line(color = "gray85", size = 0.4),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(15, 20, 12, 20),
+    legend.position = "top",        # 
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10)
+  )
+```
+
+
+## 6.2 Patrimonio total por bloque
+
+```{r}
+# Sumar patrimonio total por bloque
+patrimonio_bloque <- forbes_bloques %>%
+  group_by(Bloque) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  arrange(desc(PatrimonioTotal))
+
+# Reordenar el factor 'Bloque' para controlar el orden en la leyenda y en el gráfico
+patrimonio_bloque <- patrimonio_bloque %>%
+  mutate(Bloque = factor(Bloque, levels = c("EE.UU.", "Europa", "China")))
+
+# Gráfico
+ggplot(patrimonio_bloque, aes(x = Bloque, y = PatrimonioTotal, fill = Bloque)) +
+  geom_bar(stat = "identity", width = 0.45, color = "white", alpha = 0.95) +
+  geom_text(
+    aes(label = paste0(round(PatrimonioTotal, 1), "B")),
+    vjust = -0.7, size = 4, color = "black"
+  ) + scale_fill_manual(
+    values = colores_bloques,
+    name = "Bloque económico"
+  ) + scale_y_continuous(
+    limits = c(0, max(patrimonio_bloque$PatrimonioTotal) * 1.15),
+    expand = expansion(mult = c(0, 0.08))
+  ) + labs(
+    title = "Patrimonio total por bloque económico",
+    subtitle = "Suma de los patrimonios netos (USD Billions)",
+    x = NULL,
+    y = "Patrimonio total (USD Billions)"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.background = element_rect(fill = "#f7f7f7", color = NA),
+    panel.background = element_rect(fill = "#f7f7f7", color = NA),
+    plot.title = element_text(size = 17, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#666666", hjust = 0.5),
+    axis.title.y = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "gray85", size = 0.4),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(15, 20, 12, 20),
+    legend.position = "top",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10)
+  )
+
+
+```
+
+## 6.3 Distribución industrial: Top 6 industrias por patrimonio en cada bloque
+
+```{r}
+# Para EE.UU.
+top6_usa <- forbes_bloques %>%
+  filter(Bloque == "EE.UU.") %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  slice_max(order_by = PatrimonioTotal, n = 6) %>%
+  arrange(PatrimonioTotal)
+
+# Para China
+top6_china <- forbes_bloques %>%
+  filter(Bloque == "China") %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  slice_max(order_by = PatrimonioTotal, n = 6) %>%
+  arrange(PatrimonioTotal)
+
+# Para Europa
+top6_ue <- forbes_bloques %>%
+  filter(Bloque == "Europa") %>%
+  group_by(Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE)) %>%
+  slice_max(order_by = PatrimonioTotal, n = 6) %>%
+  arrange(PatrimonioTotal)
+```
+
+
+### 6.3.1 Industrias de mayor patrimonio en EE.UU.
+
+
+```{r}
+# Gráfico EE.UU.
+ggplot(top6_usa, aes(x = reorder(Industry, PatrimonioTotal), y = PatrimonioTotal)) +
+  geom_bar(stat = "identity", fill = "#1f77b4", width = 0.6, color = "white", alpha = 0.9) +
+  geom_text(aes(label = paste0(round(PatrimonioTotal, 1), "B")),
+            hjust = -0.2, size = 3.3, color = "#222222") +
+  labs(
+    title = "Top 6 Industrias - EE.UU.",
+    subtitle = "Patrimonio total (USD Billions)",
+    x = NULL,
+    y = "Patrimonio total"
+  ) +
+  scale_y_continuous(limits = c(0, max(top6_usa$PatrimonioTotal) * 1.2)) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title.y = element_blank(),
+    axis.text = element_text(size = 10)
+  )
+```
+
+
+### 6.3.2 Industrias de mayor patrimonio en China
+
+```{r}
+# Gráfico China
+ggplot(top6_china, aes(x = reorder(Industry, PatrimonioTotal), y = PatrimonioTotal)) +
+  geom_bar(stat = "identity", fill = "#d62728", width = 0.6, color = "white", alpha = 0.9) +
+  geom_text(aes(label = paste0(round(PatrimonioTotal, 1), "B")),
+            hjust = -0.2, size = 3.3, color = "#222222") +
+  labs(
+    title = "Top 6 Industrias - China",
+    subtitle = "Patrimonio total (USD Billions)",
+    x = NULL,
+    y = "Patrimonio total"
+  ) +
+  scale_y_continuous(limits = c(0, max(top6_china$PatrimonioTotal) * 1.2)) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title.y = element_blank(),
+    axis.text = element_text(size = 10)
+  )
+```
+
+
+### 6.3.3 Industrias de mayor patrimonio en Europa
+
+```{r}
+# Gráfico para Europa
+ggplot(top6_ue, aes(x = reorder(Industry, PatrimonioTotal), y = PatrimonioTotal)) +
+  geom_bar(stat = "identity", fill = "#2ca02c", width = 0.6, color = "white", alpha = 0.9) +
+  geom_text(aes(label = paste0(round(PatrimonioTotal, 1), "B")), hjust = -0.2,
+            size = 3.3, color = "#222222") +
+  labs(
+    title = "Top 6 Industrias - Europa",
+    subtitle = "Patrimonio total (USD Billions)",
+    x = NULL,
+    y = "Patrimonio total"
+  ) +
+  scale_y_continuous(limits = c(0, max(top6_ue$PatrimonioTotal) * 1.2)) +
+  coord_flip() +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title.y = element_blank(),
+    axis.text = element_text(size = 10)
+  )
+
+```
+
+## 6.4 Comparativa entre bloques para las 6 industrias principales
+
+```{r}
+# Establecer industrias clave (originales)
+industrias_clave <- c(
+  "Technology", "Finance & Investments",
+  "Fashion & Retail", "Food & Beverage", "Manufacturing", "Automotive"
+)
+
+# Diccionario de abreviaciones
+abreviaturas_industrias <- c(
+  "Technology" = "Tech",
+  "Finance & Investments" = "Fin",
+  "Fashion & Retail" = "F&R",
+  "Food & Beverage" = "F&B",
+  "Manufacturing" = "Mfg",
+  "Automotive" = "Auto"
+)
+
+# Filtrar, agrupar, calcular patrimonio por bloque e industria
+patrimonio_bloques_industrias <- forbes_bloques %>%
+  filter(Industry %in% industrias_clave) %>%
+  group_by(Bloque, Industry) %>%
+  summarise(PatrimonioTotal = sum(NetWorth, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    Industry = abreviaturas_industrias[as.character(Industry)],  # aplicar reemplazo
+    Bloque = factor(Bloque, levels = c("EE.UU.", "China", "Europa")),
+    Industry = factor(Industry, levels = abreviaturas_industrias)  # orden
+  )
+
+# Orden de barras
+patrimonio_bloques_industrias <- patrimonio_bloques_industrias %>%
+  mutate(Bloque = factor(Bloque, levels = c("EE.UU.", "Europa", "China")))
+
+# Gráfico
+ggplot(patrimonio_bloques_industrias, aes(x = Industry, y = PatrimonioTotal, fill = Bloque)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7),
+           width = 0.6, color = "white", alpha = 0.95) +
+  scale_fill_manual(
+    values = colores_bloques,
+    name = "Bloque económico",
+    breaks = c("EE.UU.", "Europa", "China")
+  ) + scale_y_continuous(
+    breaks = seq(0, max(patrimonio_bloques_industrias$PatrimonioTotal) + 250, by = 250),
+    expand = expansion(mult = c(0, 0.1))
+  ) +labs(
+    title = "Distribución del patrimonio por industria",
+    subtitle = "Tecnología, Finanzas, Moda, Alimentos, Manufactura y Automóviles (USD Billions)",
+    x = "Industria",
+    y = "Patrimonio total (USD Billions)"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.background = element_rect(fill = "#f7f7f7", color = NA),
+    panel.background = element_rect(fill = "#f7f7f7", color = NA),
+    plot.title = element_text(size = 17, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "gray85", size = 0.4),
+    panel.grid.minor = element_blank(),
+    legend.position = "top",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10),
+    plot.margin = margin(15, 20, 12, 20)
+  )
+```
+
+```{r}
+# Crear tabla con proporciones relativas por industria
+proporcion_por_bloque <- patrimonio_bloques_industrias %>%
+  group_by(Industry) %>%
+  mutate(Proporcion = round(100 * PatrimonioTotal / sum(PatrimonioTotal), 1)) %>%
+  ungroup()
+
+# Invertir niveles para que EE.UU. esté abajo en el apilado
+proporcion_por_bloque <- proporcion_por_bloque %>%
+  mutate(Bloque = factor(Bloque, levels = c("China", "Europa", "EE.UU.")))
+
+# Gráfico
+ggplot(proporcion_por_bloque, aes(x = Industry, y = Proporcion, fill = Bloque)) +
+  geom_bar(stat = "identity", width = 0.6, color = "white", alpha = 0.95) +
+  scale_fill_manual(
+    values = colores_bloques,
+    name = "Bloque económico",
+    breaks = c("EE.UU.", "Europa", "China")
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, by = 10),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  labs(
+    title = "Distribución relativa del patrimonio por industria",
+   subtitle = "Tecnología - Finanzas - Moda - Alimentos - Manufactura - Automóviles (%)",
+    x = "Industria",
+    y = "Participación (%)"
+  ) +
+  theme_minimal(base_family = "sans") +
+  theme(
+    plot.background = element_rect(fill = "#f7f7f7", color = NA),
+    panel.background = element_rect(fill = "#f7f7f7", color = NA),
+    plot.title = element_text(size = 17, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "#555555", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major.y = element_line(color = "gray85", size = 0.4),
+    panel.grid.minor = element_blank(),
+    legend.position = "top",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10),
+    plot.margin = margin(15, 20, 12, 20)
+  )
+```
+
+
+
+
